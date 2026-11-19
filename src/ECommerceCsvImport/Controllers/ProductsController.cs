@@ -8,16 +8,13 @@ public class ProductsController : Controller
 {
     private readonly IProductRepository _repository;
     private readonly IProductImportService _importService;
-    private readonly IWebHostEnvironment _environment;
 
     public ProductsController(
         IProductRepository repository,
-        IProductImportService importService,
-        IWebHostEnvironment environment)
+        IProductImportService importService)
     {
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));
         _importService = importService ?? throw new ArgumentNullException(nameof(importService));
-        _environment = environment ?? throw new ArgumentNullException(nameof(environment));
     }
 
     [HttpGet]
@@ -35,33 +32,26 @@ public class ProductsController : Controller
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public IActionResult Import(string filePath)
+    public IActionResult Import(IFormFile file)
     {
-        var vm = new ImportViewModel { FilePath = filePath ?? string.Empty };
-        var resolved = ResolveFilePath(filePath);
+        var vm = new ImportViewModel();
 
-        if (string.IsNullOrWhiteSpace(resolved))
+        if (file == null || file.Length == 0)
         {
             var r = new ImportResult();
-            r.Errors.Add(new ImportError { RowNumber = 0, Message = "Файл не найден" });
+            r.Errors.Add(new ImportError { RowNumber = 0, Message = "Файл не выбран или пуст" });
             vm.Result = r;
             return View(vm);
         }
-
-        vm.Result = _importService.ImportFromCsv(resolved);
+        var lines = new List<string>();
+        using (var reader = new StreamReader(file.OpenReadStream()))
+        {
+            while (reader.Peek() >= 0)
+            {
+                lines.Add(reader.ReadLine()!);
+            }
+        }
+        vm.Result = _importService.ImportFromLines(lines);
         return View(vm);
-    }
-
-    private string ResolveFilePath(string? filePath)
-    {
-        if (string.IsNullOrWhiteSpace(filePath)) return string.Empty;
-        filePath = filePath.Trim();
-
-        if (Path.IsPathRooted(filePath)) return filePath;
-
-        var relative = filePath.TrimStart('/', '\\');
-        var webRoot = _environment.WebRootPath
-                      ?? Path.Combine(_environment.ContentRootPath, "wwwroot");
-        return Path.Combine(webRoot, relative.Replace('/', Path.DirectorySeparatorChar));
     }
 }
